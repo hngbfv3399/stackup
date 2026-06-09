@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, View, ScrollView, useColorScheme } from 'react-native';
+import { StyleSheet, View, ScrollView, useColorScheme, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStackStore } from '@/store/useStackStore';
 import { ThemedText } from '@/components/themed-text';
@@ -198,6 +198,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+    marginTop: Platform.select({ web: 90, default: 0 }),
   },
   scrollContent: {
     paddingHorizontal: Spacing.four,

@@ -1040,6 +1040,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+    marginTop: Platform.select({ web: 90, default: 0 }),
   },
   headerTitleRow: {
     flexDirection: 'row',

@@ -8,6 +8,7 @@ import {
   TextInput,
   useColorScheme,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar, DateData } from 'react-native-calendars';
@@ -428,6 +429,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.three,
+    marginTop: Platform.select({ web: 90, default: 0 }),
   },
   scrollContent: {
     paddingHorizontal: Spacing.four,
