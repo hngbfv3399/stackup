@@ -8,7 +8,9 @@ import {
   TextInput,
   useColorScheme,
   Alert,
+  Platform,
 } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import { useStackStore } from '@/store/useStackStore';
@@ -17,6 +19,14 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, Spacing, MaxContentWidth, BottomTabInset } from '@/constants/theme';
 import { TransactionType } from '@/types';
+
+const showAlert = (title: string, message: string) => {
+  if (Platform.OS === 'web') {
+    alert(`${title}: ${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+};
 
 // 기본 카테고리 목록 정의
 const CATEGORIES: Record<TransactionType, string[]> = {
@@ -142,15 +152,15 @@ export default function HomeScreen() {
   const handleAddTx = () => {
     const amountNum = parseInt(txAmount.replace(/,/g, ''), 10);
     if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert('알림', '금액을 올바르게 입력해주세요.');
+      showAlert('알림', '금액을 올바르게 입력해주세요.');
       return;
     }
     if (!txCategory) {
-      Alert.alert('알림', '카테고리를 선택해주세요.');
+      showAlert('알림', '카테고리를 선택해주세요.');
       return;
     }
     if (txType === 'stack' && !txTowerId) {
-      Alert.alert('알림', '적립할 스택 타워를 선택해주세요.');
+      showAlert('알림', '적립할 스택 타워를 선택해주세요.');
       return;
     }
 
@@ -182,19 +192,19 @@ export default function HomeScreen() {
     const amountNum = parseInt(fixedAmount.replace(/,/g, ''), 10);
     const dayNum = parseInt(fixedDay, 10);
     if (!fixedTitle.trim()) {
-      Alert.alert('알림', '고정비 항목명을 입력해주세요.');
+      showAlert('알림', '고정비 항목명을 입력해주세요.');
       return;
     }
     if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert('알림', '금액을 올바르게 입력해주세요.');
+      showAlert('알림', '금액을 올바르게 입력해주세요.');
       return;
     }
     if (!fixedCategory) {
-      Alert.alert('알림', '카테고리를 선택해주세요.');
+      showAlert('알림', '카테고리를 선택해주세요.');
       return;
     }
     if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
-      Alert.alert('알림', '반복 일자를 1~31일 사이로 입력해주세요.');
+      showAlert('알림', '반복 일자를 1~31일 사이로 입력해주세요.');
       return;
     }
 
@@ -219,7 +229,7 @@ export default function HomeScreen() {
   const handleAddBank = () => {
     const res = handleAddBankProductSubmit();
     if (!res.success) {
-      Alert.alert('알림', res.message);
+      showAlert('알림', res.message ?? '오류가 발생했습니다.');
     }
   };
 
@@ -245,12 +255,12 @@ export default function HomeScreen() {
             <Pressable
               onPress={() => {
                 loadMockData();
-                Alert.alert('알림', '가상 Mock Data가 성공적으로 로드되었습니다.');
+                showAlert('알림', '가상 Mock Data가 성공적으로 로드되었습니다.');
               }}
-              style={[styles.mockBtn, { backgroundColor: colors.text }]}
+              style={[styles.mockBtn, { backgroundColor: '#3B82F6' }]}
             >
-              <ThemedText type="code" style={{ color: colors.background, fontWeight: 'bold' }}>
-                샘플 데이터 로드
+              <ThemedText type="smallBold" style={{ color: '#ffffff' }}>
+                샘플 데이터 로드 ⚡
               </ThemedText>
             </Pressable>
           </View>
@@ -303,22 +313,30 @@ export default function HomeScreen() {
             <ThemedText type="smallBold" themeColor="textSecondary" style={{ marginBottom: Spacing.two }}>
               미니 달력 흐름 (수입: 초록, 소비: 빨강)
             </ThemedText>
-            <Calendar
-              key={scheme}
-              markingType="multi-dot"
-              markedDates={miniCalendarMarkedDates}
-              theme={{
-                calendarBackground: 'transparent',
-                textSectionTitleColor: colors.textSecondary,
-                dayTextColor: colors.text,
-                todayTextColor: '#3B82F6',
-                arrowColor: colors.text,
-                monthTextColor: colors.text,
-                textDayFontWeight: 'bold',
-                textMonthFontWeight: 'bold',
-              }}
-              style={{ borderRadius: Spacing.two }}
-            />
+            {Platform.OS !== 'web' ? (
+              <Calendar
+                key={scheme}
+                markingType="multi-dot"
+                markedDates={miniCalendarMarkedDates}
+                theme={{
+                  calendarBackground: 'transparent',
+                  textSectionTitleColor: colors.textSecondary,
+                  dayTextColor: colors.text,
+                  todayTextColor: '#3B82F6',
+                  arrowColor: colors.text,
+                  monthTextColor: colors.text,
+                  textDayFontWeight: 'bold',
+                  textMonthFontWeight: 'bold',
+                }}
+                style={{ borderRadius: Spacing.two }}
+              />
+            ) : (
+              <View style={{ paddingVertical: Spacing.three, alignItems: 'center', backgroundColor: colors.backgroundSelected, borderRadius: Spacing.two }}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  🖥️ 웹 환경에서는 상세 달력을 &quot;달력/일정&quot; 탭에서 확인해 주세요!
+                </ThemedText>
+              </View>
+            )}
           </ThemedView>
 
           {/* ────────────────────────────────────────── */}
