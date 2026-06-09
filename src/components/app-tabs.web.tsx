@@ -24,6 +24,9 @@ export default function AppTabs() {
           <TabTrigger name="index" href="/" asChild>
             <TabButton>스택 보드</TabButton>
           </TabTrigger>
+          <TabTrigger name="calendar" href="/calendar" asChild>
+            <TabButton>달력/일정</TabButton>
+          </TabTrigger>
           <TabTrigger name="towers" href="/towers" asChild>
             <TabButton>스택 타워</TabButton>
           </TabTrigger>
