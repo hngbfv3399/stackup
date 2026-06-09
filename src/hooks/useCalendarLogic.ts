@@ -37,18 +37,20 @@ export function useCalendarLogic() {
 
   // 1. 날짜별 금액 합산 메타데이터 생성 (markedDates 전달용)
   const calendarDataMap = useMemo(() => {
-    const map: Record<string, { income: number; expense: number; expected: number }> = {};
+    const map: Record<string, { income: number; expense: number; expected: number; saving: number }> = {};
 
     // 실제 가계부 거래 합산
     transactions.forEach((tx) => {
       const date = tx.date;
       if (!map[date]) {
-        map[date] = { income: 0, expense: 0, expected: 0 };
+        map[date] = { income: 0, expense: 0, expected: 0, saving: 0 };
       }
       if (tx.type === 'income') {
         map[date].income += tx.amount;
       } else if (tx.type === 'expense' || tx.type === 'credit_card') {
         map[date].expense += tx.amount;
+      } else if (tx.type === 'saving') {
+        map[date].saving += tx.amount;
       }
     });
 
@@ -57,7 +59,7 @@ export function useCalendarLogic() {
       if (sched.isSettled) return; // 이미 정산된 일정은 제외
       const date = sched.date;
       if (!map[date]) {
-        map[date] = { income: 0, expense: 0, expected: 0 };
+        map[date] = { income: 0, expense: 0, expected: 0, saving: 0 };
       }
       map[date].expected += sched.expectedAmount;
     });
@@ -65,12 +67,38 @@ export function useCalendarLogic() {
     return map;
   }, [transactions, schedules]);
 
-  // 2. 선택된 날짜의 실제 거래 내역 필터링
+  // 2. 선택된 연월(YYYY-MM)에 속한 실적 요약 계산
+  const monthlySummary = useMemo(() => {
+    const yearMonth = selectedDate.substring(0, 7);
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let totalSaving = 0;
+
+    transactions.forEach((tx) => {
+      if (tx.date.startsWith(yearMonth)) {
+        if (tx.type === 'income') {
+          totalIncome += tx.amount;
+        } else if (tx.type === 'expense' || tx.type === 'credit_card') {
+          totalExpense += tx.amount;
+        } else if (tx.type === 'saving') {
+          totalSaving += tx.amount;
+        }
+      }
+    });
+
+    return {
+      totalIncome,
+      totalExpense,
+      totalSaving,
+    };
+  }, [transactions, selectedDate]);
+
+  // 3. 선택된 날짜의 실제 거래 내역 필터링
   const selectedDayTransactions = useMemo(() => {
     return transactions.filter((tx) => tx.date === selectedDate);
   }, [transactions, selectedDate]);
 
-  // 3. 선택된 날짜의 예정 일정 필터링
+  // 4. 선택된 날짜의 예정 일정 필터링
   const selectedDaySchedules = useMemo(() => {
     return schedules.filter((s) => s.date === selectedDate);
   }, [schedules, selectedDate]);
@@ -131,6 +159,7 @@ export function useCalendarLogic() {
     selectedDayTransactions,
     selectedDaySchedules,
     todayStr,
+    monthlySummary,
 
     // 일정 추가 관련
     isAddModalOpen,

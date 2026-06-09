@@ -31,9 +31,10 @@ interface StackState {
   updateFixedSetting: (id: string, setting: Partial<FixedSetting>) => void;
 
   // Bank Product Actions
-  addBankProduct: (product: Omit<BankProduct, 'id'>) => void;
+  addBankProduct: (product: Omit<BankProduct, 'id' | 'status' | 'maturedDate' | 'finalReceivedAmount'>) => void;
   deleteBankProduct: (id: string) => void;
   updateBankProduct: (id: string, product: Partial<BankProduct>) => void;
+  terminateBankProduct: (id: string, actualReceivedAmount: number) => void;
 
   // Schedule Actions
   addSchedule: (schedule: Omit<Schedule, 'id' | 'isSettled'>) => void;
@@ -81,6 +82,7 @@ export const useStackStore = create<StackState>()(
         const newProd: BankProduct = {
           ...product,
           id: generateId(),
+          status: 'active',
         };
         set((state) => ({
           bankProducts: [...state.bankProducts, newProd],
@@ -96,6 +98,44 @@ export const useStackStore = create<StackState>()(
           p.id === id ? { ...p, ...updated } : p
         ),
       })),
+
+      terminateBankProduct: (id, actualReceivedAmount) => {
+        const state = get();
+        const product = state.bankProducts.find((p) => p.id === id);
+        if (!product || product.status !== 'active') return;
+
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+
+        const newTx: Transaction = {
+          id: generateId(),
+          type: 'income',
+          isFixed: false,
+          amount: actualReceivedAmount,
+          category: '금융소득',
+          storeName: `${product.bankName} ${product.title}`,
+          date: dateStr,
+          memo: `[예적금 중도해지] 원금 및 중도해지 이자 수령 (원금: ${product.amount.toLocaleString()}원)`,
+        };
+
+        set((state) => ({
+          bankProducts: state.bankProducts.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  status: 'terminated',
+                  maturedDate: dateStr,
+                  finalReceivedAmount: actualReceivedAmount,
+                }
+              : p
+          ),
+          transactions: [newTx, ...state.transactions],
+          totalAsset: state.totalAsset + actualReceivedAmount,
+        }));
+      },
 
       addSchedule: (schedule) => {
         const newSched: Schedule = {
@@ -157,6 +197,18 @@ export const useStackStore = create<StackState>()(
           return `${y}-${m}-${dateStr}`;
         };
 
+        // 이번 주 월요일~일요일에 데이터 안전 배치를 위한 헬퍼
+        const todayDay = today.getDay();
+        const mondayOffset = -(todayDay === 0 ? 6 : todayDay - 1);
+        const getThisOfWeekDate = (dayIndex: number): string => {
+          // dayIndex: 0(월) ~ 6(일)
+          return formatDateOffset(mondayOffset + dayIndex);
+        };
+        const currentDayIdx = todayDay === 0 ? 7 : todayDay; // 1(월)~7(일)
+
+        // 과거 정산 세트 날짜 결정 (오늘이 월요일이면 지난주 일요일, 그 외는 이번 주 어제)
+        const settledDateStr = currentDayIdx === 1 ? formatDateOffset(-1) : getThisOfWeekDate(currentDayIdx - 2);
+
         const towerId1 = 'tower-macbook';
         const towerId2 = 'tower-travel';
 
@@ -210,6 +262,45 @@ export const useStackStore = create<StackState>()(
         ];
 
         const mockTransactions: Transaction[] = [
+          // [이번 주 수입 및 지출]
+          {
+            id: 'tx-week-income-1',
+            type: 'income',
+            isFixed: false,
+            amount: 150000,
+            category: '용돈',
+            storeName: '부모님 송금',
+            date: getThisOfWeekDate(0), // 이번 주 월요일 수입 기입
+          },
+          {
+            id: 'tx-week-expense-1',
+            type: 'expense',
+            isFixed: false,
+            amount: 32000,
+            category: '식비',
+            storeName: '청년다방',
+            date: settledDateStr,
+          },
+          // 소비 일정 정산에 의해 실제 가계부로 이관 기입된 예시 데이터
+          {
+            id: 'tx-week-settled-1',
+            type: 'expense',
+            isFixed: false,
+            amount: 25000,
+            category: '기타',
+            storeName: '동창회 모임 🍻',
+            date: settledDateStr,
+            memo: '[일정 정산 - 더치페이]',
+          },
+          {
+            id: 'tx-week-expense-2',
+            type: 'expense',
+            isFixed: false,
+            amount: 15000,
+            category: '식비',
+            storeName: '스타벅스 커피',
+            date: formatDateOffset(0), // 오늘 지출
+          },
           // 이번달
           {
             id: 'tx-1',
@@ -370,6 +461,8 @@ export const useStackStore = create<StackState>()(
             interestRate: 5.5,
             maturityDate: formatDateOffset(365),
             monthlyPayment: 500000,
+            paymentDay: 10,
+            status: 'active',
           },
           {
             id: 'bank-2',
@@ -379,31 +472,45 @@ export const useStackStore = create<StackState>()(
             amount: 10000000,
             interestRate: 3.5,
             maturityDate: formatDateOffset(180),
+            status: 'active',
           },
         ];
 
         const mockSchedules: Schedule[] = [
+          // 1. 이미 실제 가계부로 정산 완료된 소비 일정 예시
           {
-            id: 'sched-1',
-            title: '대학 동창들과 제주도 여행 ✈️',
-            date: formatDateOffset(10), // 10일 후
-            expectedAmount: 300000,
-            isSettled: false,
+            id: 'sched-settled-1',
+            title: '동창회 모임 🍻',
+            date: settledDateStr,
+            expectedAmount: 30000,
+            actualAmount: 25000,
+            isSettled: true,
             payType: 'dutch_pay',
           },
+          // 2. 오늘 정산 대기 중인 예정 일정 예시
           {
-            id: 'sched-2',
-            title: '어버이날 선물 준비 🎁',
-            date: formatDateOffset(20), // 20일 후
-            expectedAmount: 150000,
+            id: 'sched-1',
+            title: '카페 커피 약속 ☕',
+            date: formatDateOffset(0), // 오늘
+            expectedAmount: 12000,
             isSettled: false,
             payType: 'solo',
           },
+          // 3. 내일 정산 대기 중인 예정 일정 예시
+          {
+            id: 'sched-2',
+            title: '주말 영화 관람 🎬',
+            date: formatDateOffset(1), // 내일
+            expectedAmount: 30000,
+            isSettled: false,
+            payType: 'dutch_pay',
+          },
+          // 4. 3일 뒤 예정 일정
           {
             id: 'sched-3',
-            title: '지나간 강남 맛집 정모 🍽️',
-            date: formatDateOffset(-4), // 4일 전
-            expectedAmount: 50000,
+            title: '친구와 뮤지컬 관람 🎭',
+            date: formatDateOffset(3), // 3일 뒤
+            expectedAmount: 120000,
             isSettled: false,
             payType: 'dutch_pay',
           },
@@ -491,11 +598,13 @@ export const useStackStore = create<StackState>()(
       // 고정비 자동 생성 엔진 (A안 구현)
       // ──────────────────────────────────────────
       processFixedSettings: (todayStr) => {
-        const { fixedSettings, lastProcessedFixedDate, transactions } = get();
+        const { fixedSettings, bankProducts, lastProcessedFixedDate, transactions } = get();
         
-        // 활성화된 고정비 템플릿이 없으면 중단
+        // 고정비 템플릿과 예적금 중 활성화된 항목 필터링
         const activeSettings = fixedSettings.filter((s) => s.isActive);
-        if (activeSettings.length === 0) {
+        const activeBankProducts = bankProducts.filter((p) => p.status === 'active');
+        
+        if (activeSettings.length === 0 && activeBankProducts.length === 0) {
           set({ lastProcessedFixedDate: todayStr });
           return;
         }
@@ -514,6 +623,9 @@ export const useStackStore = create<StackState>()(
         }
 
         const newTransactions: Transaction[] = [];
+        let tempBankProducts = [...bankProducts];
+        let tempTotalAsset = get().totalAsset;
+        
         // 시작일 다음 날부터 오늘까지 하루씩 전진하며 체크
         const currentCheck = new Date(startDate);
         
@@ -523,7 +635,9 @@ export const useStackStore = create<StackState>()(
           const currentMonth = currentCheck.getMonth();
           const currentDateNum = currentCheck.getDate();
           const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+          const dateStr = formatDate(currentCheck);
 
+          // 1. 고정 수입/지출 처리
           for (const setting of activeSettings) {
             let isTriggered = false;
             
@@ -537,8 +651,6 @@ export const useStackStore = create<StackState>()(
             }
 
             if (isTriggered) {
-              // 중복 생성 방지: 같은 날짜, 같은 fixedSettingId를 가진 트랜잭션이 이미 존재하는지 확인
-              const dateStr = formatDate(currentCheck);
               const isDuplicated = transactions.some(
                 (tx) => tx.fixedSettingId === setting.id && tx.date === dateStr
               );
@@ -558,16 +670,95 @@ export const useStackStore = create<StackState>()(
               }
             }
           }
+
+          // 2. 적금 자동 납입 처리 (매달 납입일 체크)
+          tempBankProducts = tempBankProducts.map((product) => {
+            if (product.type === 'savings' && product.status === 'active' && product.paymentDay) {
+              let isSavingsTriggered = false;
+              if (product.paymentDay === currentDateNum) {
+                isSavingsTriggered = true;
+              } else if (product.paymentDay > daysInMonth && currentDateNum === daysInMonth) {
+                isSavingsTriggered = true;
+              }
+
+              if (isSavingsTriggered && product.monthlyPayment) {
+                const uniqueKey = `savings-pay-${product.id}-${dateStr}`;
+                const isDuplicated = transactions.some((tx) => tx.fixedSettingId === uniqueKey) || 
+                                     newTransactions.some((tx) => tx.fixedSettingId === uniqueKey);
+
+                if (!isDuplicated) {
+                  newTransactions.push({
+                    id: generateId(),
+                    type: 'saving', // 저축 분리!
+                    isFixed: true,
+                    fixedSettingId: uniqueKey,
+                    amount: product.monthlyPayment,
+                    category: '저축',
+                    storeName: product.title,
+                    date: dateStr,
+                    memo: `[적금 자동 납입] ${product.bankName}`,
+                  });
+                  return { ...product, amount: product.amount + product.monthlyPayment };
+                }
+              }
+            }
+            return product;
+          });
+
+          // 3. 예적금 자동 만기 처리
+          tempBankProducts = tempBankProducts.map((product) => {
+            if (product.status === 'active' && product.maturityDate === dateStr) {
+              const uniqueKey = `bank-mat-${product.id}`;
+              const isDuplicated = transactions.some((tx) => tx.fixedSettingId === uniqueKey) ||
+                                   newTransactions.some((tx) => tx.fixedSettingId === uniqueKey);
+
+              if (!isDuplicated) {
+                let interest = 0;
+                if (product.type === 'deposit') {
+                  interest = Math.round(product.amount * (product.interestRate / 100));
+                } else if (product.type === 'savings') {
+                  interest = Math.round(product.amount * (product.interestRate / 100) * 0.5);
+                }
+                const finalAmount = product.amount + interest;
+
+                newTransactions.push({
+                  id: generateId(),
+                  type: 'income', // 만기 환급은 소득으로 소득 전환!
+                  isFixed: true,
+                  fixedSettingId: uniqueKey,
+                  amount: finalAmount,
+                  category: '금융소득',
+                  storeName: product.title,
+                  date: dateStr,
+                  memo: `[예적금 만기 수령] 원금: ${product.amount.toLocaleString()}원, 이자: ${interest.toLocaleString()}원`,
+                });
+
+                tempTotalAsset += finalAmount;
+
+                return {
+                  ...product,
+                  status: 'matured',
+                  maturedDate: dateStr,
+                  finalReceivedAmount: finalAmount,
+                };
+              }
+            }
+            return product;
+          });
         }
 
+        // 상태 일괄 업데이트
+        const nextState: Partial<StackState> = {
+          lastProcessedFixedDate: todayStr,
+          bankProducts: tempBankProducts,
+          totalAsset: tempTotalAsset,
+        };
+
         if (newTransactions.length > 0) {
-          set((state) => ({
-            transactions: [...newTransactions, ...state.transactions],
-            lastProcessedFixedDate: todayStr,
-          }));
-        } else {
-          set({ lastProcessedFixedDate: todayStr });
+          nextState.transactions = [...newTransactions, ...transactions];
         }
+
+        set(nextState as any);
       },
 
       // ──────────────────────────────────────────

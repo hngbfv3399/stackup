@@ -1,4 +1,4 @@
-export type TransactionType = 'income' | 'expense' | 'credit_card' | 'stack';
+export type TransactionType = 'income' | 'expense' | 'credit_card' | 'stack' | 'saving';
 
 export interface Transaction {
   id: string;
@@ -64,6 +64,10 @@ export interface BankProduct {
   interestRate: number;        // 이율 (%)
   maturityDate: string;        // 만기일 (YYYY-MM-DD)
   monthlyPayment?: number;     // 적금 시 월 납입액
+  paymentDay?: number;         // 적금 매달 납입일 (1 ~ 31)
+  status: 'active' | 'matured' | 'terminated'; // 상품 상태
+  maturedDate?: string;        // 만기/해지 완료 처리 일자
+  finalReceivedAmount?: number; // 최종 수령액
 }
 
 export interface Schedule {

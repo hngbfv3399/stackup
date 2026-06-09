@@ -18,15 +18,14 @@ import { Colors, Spacing, MaxContentWidth, BottomTabInset } from '@/constants/th
 import { useCalendarLogic } from '@/hooks/useCalendarLogic';
 import { Schedule } from '@/types';
 
-// 만 단위 변환 헬퍼 함수
-const formatToMan = (amount: number, prefix: '+' | '-' | '예상 '): string => {
-  if (amount <= 0) return '';
-  const man = Math.round(amount / 10000);
-  if (man === 0) {
-    const chun = Math.round(amount / 1000);
-    return `${prefix}${chun}천`;
+
+
+const showAlert = (title: string, message: string) => {
+  if (Platform.OS === 'web') {
+    alert(`${title}: ${message}`);
+  } else {
+    Alert.alert(title, message);
   }
-  return `${prefix}${man}만`;
 };
 
 export default function CalendarScreen() {
@@ -62,13 +61,14 @@ export default function CalendarScreen() {
     setSettleActualAmount,
     handleOpenSettle,
     handleSettleSubmit,
+    monthlySummary,
   } = useCalendarLogic();
 
   // 일정 추가 모달 제출
   const onAddSubmit = () => {
     const res = handleAddScheduleSubmit();
     if (!res.success) {
-      Alert.alert('알림', res.message);
+      showAlert('알림', res.message || '오류가 발생했습니다.');
     }
   };
 
@@ -76,7 +76,7 @@ export default function CalendarScreen() {
   const onSettleSubmit = () => {
     const res = handleSettleSubmit();
     if (!res.success) {
-      Alert.alert('알림', res.message);
+      showAlert('알림', res.message || '오류가 발생했습니다.');
     }
   };
 
@@ -96,6 +96,35 @@ export default function CalendarScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {/* 📊 [0] 월간 누적 실적 요약 카드 */}
+          <ThemedView type="backgroundElement" style={styles.monthlySummaryCard}>
+            <ThemedText type="smallBold" themeColor="textSecondary" style={{ marginBottom: Spacing.two }}>
+              {selectedDate.substring(5, 7)}월 누적 리포트
+            </ThemedText>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <ThemedText type="small" themeColor="textSecondary">총 수입</ThemedText>
+                <ThemedText type="subtitle" style={{ color: '#10B981', marginTop: 4 }}>
+                  +{monthlySummary.totalIncome.toLocaleString()}원
+                </ThemedText>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}>
+                <ThemedText type="small" themeColor="textSecondary">총 지출</ThemedText>
+                <ThemedText type="subtitle" style={{ color: '#EF4444', marginTop: 4 }}>
+                  -{monthlySummary.totalExpense.toLocaleString()}원
+                </ThemedText>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}>
+                <ThemedText type="small" themeColor="textSecondary">총 저축</ThemedText>
+                <ThemedText type="subtitle" style={{ color: '#3B82F6', marginTop: 4 }}>
+                  {monthlySummary.totalSaving.toLocaleString()}원
+                </ThemedText>
+              </View>
+            </View>
+          </ThemedView>
+
           {/* ────────────────────────────────────────── */}
           {/* [1] 외부 라이브러리 react-native-calendars 연동 */}
           {/* ────────────────────────────────────────── */}
@@ -118,16 +147,17 @@ export default function CalendarScreen() {
                 textMonthFontWeight: 'bold',
                 textDayHeaderFontWeight: 'bold',
               }}
-              // 날짜 칸 커스텀 렌더링 (옵션 A + C + 만원 단위 축소)
+              // 날짜 칸 커스텀 렌더링 (도트 마킹 방식)
               dayComponent={({ date, state }: { date?: DateData; state?: any }) => {
                 if (!date) return null;
                 const isSelected = date.dateString === selectedDate;
                 const isToday = date.dateString === todayStr;
-                const dayData = calendarDataMap[date.dateString] || { income: 0, expense: 0, expected: 0 };
+                const dayData = calendarDataMap[date.dateString] || { income: 0, expense: 0, expected: 0, saving: 0 };
                 
                 const showIncome = dayData.income > 0;
                 const showExpense = dayData.expense > 0;
                 const showExpected = dayData.expected > 0;
+                const showSaving = dayData.saving > 0;
 
                 return (
                   <Pressable
@@ -150,23 +180,12 @@ export default function CalendarScreen() {
                       {date.day}
                     </ThemedText>
 
-                    {/* 수입/소비 금액 정보 오버레이 (만원 단위 축소 및 색상 분류) */}
-                    <View style={styles.amountIndicatorContainer}>
-                      {showIncome && (
-                        <ThemedText style={styles.incomeBadgeText}>
-                          {formatToMan(dayData.income, '+')}
-                        </ThemedText>
-                      )}
-                      {showExpense && (
-                        <ThemedText style={styles.expenseBadgeText}>
-                          {formatToMan(dayData.expense, '-')}
-                        </ThemedText>
-                      )}
-                      {showExpected && (
-                        <ThemedText style={styles.expectedBadgeText}>
-                          {formatToMan(dayData.expected, '예상 ')}
-                        </ThemedText>
-                      )}
+                    {/* 수입/소비/저축/예상 일정 도트 마커 (옵션 A 적용) */}
+                    <View style={styles.dotContainer}>
+                      {showIncome && <View style={[styles.indicatorDot, { backgroundColor: '#10B981' }]} />}
+                      {showExpense && <View style={[styles.indicatorDot, { backgroundColor: '#EF4444' }]} />}
+                      {showSaving && <View style={[styles.indicatorDot, { backgroundColor: '#3B82F6' }]} />}
+                      {showExpected && <View style={[styles.indicatorDot, { backgroundColor: '#8B5CF6' }]} />}
                     </View>
                   </Pressable>
                 );
@@ -218,10 +237,16 @@ export default function CalendarScreen() {
                     
                     <Pressable
                       onPress={() => {
-                        Alert.alert('일정 삭제', '이 일정을 삭제하시겠습니까?', [
-                          { text: '취소', style: 'cancel' },
-                          { text: '삭제', style: 'destructive', onPress: () => handleDeleteSchedule(sched.id) },
-                        ]);
+                        if (Platform.OS === 'web') {
+                          if (confirm('이 일정을 삭제하시겠습니까?')) {
+                            handleDeleteSchedule(sched.id);
+                          }
+                        } else {
+                          Alert.alert('일정 삭제', '이 일정을 삭제하시겠습니까?', [
+                            { text: '취소', style: 'cancel' },
+                            { text: '삭제', style: 'destructive', onPress: () => handleDeleteSchedule(sched.id) },
+                          ]);
+                        }
                       }}
                       style={styles.deleteBtn}
                     >
@@ -451,29 +476,35 @@ const styles = StyleSheet.create({
   dayText: {
     fontSize: 12,
   },
-  amountIndicatorContainer: {
-    width: '100%',
+  monthlySummaryCard: {
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 2,
-    gap: 1,
   },
-  incomeBadgeText: {
-    fontSize: 8,
-    color: '#10B981',
-    fontWeight: 'bold',
-    textAlign: 'center',
+  summaryItem: {
+    flex: 1,
+    alignItems: 'center',
   },
-  expenseBadgeText: {
-    fontSize: 8,
-    color: '#EF4444',
-    fontWeight: 'bold',
-    textAlign: 'center',
+  summaryDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#E5E7EB22',
   },
-  expectedBadgeText: {
-    fontSize: 8,
-    color: '#3B82F6',
-    fontWeight: 'bold',
-    textAlign: 'center',
+  dotContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    gap: 3,
+  },
+  indicatorDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   detailSection: {
     marginTop: Spacing.two,

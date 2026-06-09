@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,7 +13,6 @@ import {
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
-import { useStackStore } from '@/store/useStackStore';
 import { useHomeLogic } from '@/hooks/useHomeLogic';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -34,36 +33,36 @@ const CATEGORIES: Record<TransactionType, string[]> = {
   expense: ['식비', '교통비', '쇼핑', '문화생활', '주거/통신', '의료/건강', '생필품', '기타'],
   credit_card: ['쇼핑', '외식/배달', '여행/숙박', '가전/디지털', '패션/뷰티', '기타'],
   stack: ['스택타워 적립', '비상금', '기타'],
+  saving: ['적금 납입', '주택 청약', '기타저축', '기타'],
 };
 
 export default function HomeScreen() {
   const scheme = useColorScheme();
   const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
 
-  // Zustand Store
   const {
-    transactions,
-    towers,
     fixedSettings,
-    addTransaction,
-    deleteTransaction,
-    addFixedSetting,
-    deleteFixedSetting,
-    updateFixedSetting,
-    processFixedSettings,
-    getMonthlySimulation,
-  } = useStackStore();
-
-  // 아키텍처 규칙 준수: 복잡한 비즈니스 데이터 연산 및 예적금 관리는 커스텀 훅으로 위임
-  const {
+    towers,
     weeklySummary,
     towerProgressMessages,
     upcomingSchedules,
     bankProducts,
     bankSummary,
     loadMockData,
+    processFixedSettings,
     
-    // 예적금 관련 상태 및 핸들러
+    // 시뮬레이션
+    simulation,
+
+    // 필터링된 거래 내역
+    filterType,
+    setFilterType,
+    filteredTransactions,
+
+    // 미니 달력 마크 데이터
+    miniCalendarMarkedDates,
+    
+    // 예적금 추가 모달 및 폼
     isAddBankOpen,
     setIsAddBankOpen,
     bankType,
@@ -80,17 +79,56 @@ export default function HomeScreen() {
     setBankMaturity,
     bankMonthlyPayment,
     setBankMonthlyPayment,
+    bankPaymentDay,
+    setBankPaymentDay,
     handleAddBankProductSubmit,
     handleDeleteBankProduct,
-  } = useHomeLogic();
 
-  // 현재 연월 획득 (YYYY-MM)
-  const currentYearMonth = useMemo(() => {
-    const now = new Date();
-    const yStr = now.getFullYear();
-    const mStr = String(now.getMonth() + 1).padStart(2, '0');
-    return `${yStr}-${mStr}`;
-  }, []);
+    // 중도해지 관련
+    isTermModalOpen,
+    setIsTermModalOpen,
+    termActualReceived,
+    setTermActualReceived,
+    handleOpenTerminate,
+    handleTerminateBankProductSubmit,
+
+    // 거래 내역 추가 모달 및 폼
+    txModalVisible,
+    setTxModalVisible,
+    txType,
+    setTxType,
+    txAmount,
+    setTxAmount,
+    txCategory,
+    setTxCategory,
+    txStore,
+    setTxStore,
+    txMemo,
+    setTxMemo,
+    txTowerId,
+    setTxTowerId,
+    handleAddTransactionSubmit,
+    deleteTransaction,
+
+    // 고정비 모달 및 폼
+    fixedModalVisible,
+    setFixedModalVisible,
+    fixedListVisible,
+    setFixedListVisible,
+    fixedType,
+    setFixedType,
+    fixedTitle,
+    setFixedTitle,
+    fixedAmount,
+    setFixedAmount,
+    fixedCategory,
+    setFixedCategory,
+    fixedDay,
+    setFixedDay,
+    handleAddFixedSettingSubmit,
+    deleteFixedSetting,
+    updateFixedSetting,
+  } = useHomeLogic();
 
   useEffect(() => {
     const now = new Date();
@@ -102,127 +140,20 @@ export default function HomeScreen() {
     processFixedSettings(todayStr);
   }, [processFixedSettings]);
 
-  // 시뮬레이션 결과 불러오기
-  const simulation = getMonthlySimulation(currentYearMonth || '2026-06');
-
-  // UI 상태 관리
-  const [filterType, setFilterType] = useState<TransactionType | 'all'>('all');
-  const [txModalVisible, setTxModalVisible] = useState(false);
-  const [fixedModalVisible, setFixedModalVisible] = useState(false);
-  const [fixedListVisible, setFixedListVisible] = useState(false);
-
-  // 거래 내역 입력 폼 상태
-  const [txType, setTxType] = useState<TransactionType>('expense');
-  const [txAmount, setTxAmount] = useState('');
-  const [txCategory, setTxCategory] = useState('');
-  const [txStore, setTxStore] = useState('');
-  const [txMemo, setTxMemo] = useState('');
-  const [txTowerId, setTxTowerId] = useState('');
-
-  // 고정비 등록 폼 상태
-  const [fixedType, setFixedType] = useState<'income' | 'expense'>('expense');
-  const [fixedTitle, setFixedTitle] = useState('');
-  const [fixedAmount, setFixedAmount] = useState('');
-  const [fixedCategory, setFixedCategory] = useState('');
-  const [fixedDay, setFixedDay] = useState('');
-  const [fixedStore, setFixedStore] = useState('');
-
-  // 미니 달력용 MarkedDates 계산 (수입: 초록 점, 지출: 빨간 점)
-  const miniCalendarMarkedDates = useMemo(() => {
-    const marked: Record<string, { dots: { key: string; color: string }[] }> = {};
-    transactions.forEach((tx) => {
-      const date = tx.date;
-      if (!marked[date]) {
-        marked[date] = { dots: [] };
-      }
-      const dots = marked[date].dots;
-      if (tx.type === 'income' && !dots.some((d) => d.key === 'income')) {
-        dots.push({ key: 'income', color: '#10B981' });
-      } else if (
-        (tx.type === 'expense' || tx.type === 'credit_card') &&
-        !dots.some((d) => d.key === 'expense')
-      ) {
-        dots.push({ key: 'expense', color: '#EF4444' });
-      }
-    });
-    return marked;
-  }, [transactions]);
-
   // 거래 등록 핸들러
   const handleAddTx = () => {
-    const amountNum = parseInt(txAmount.replace(/,/g, ''), 10);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      showAlert('알림', '금액을 올바르게 입력해주세요.');
-      return;
+    const res = handleAddTransactionSubmit();
+    if (!res.success) {
+      showAlert('알림', res.message ?? '오류가 발생했습니다.');
     }
-    if (!txCategory) {
-      showAlert('알림', '카테고리를 선택해주세요.');
-      return;
-    }
-    if (txType === 'stack' && !txTowerId) {
-      showAlert('알림', '적립할 스택 타워를 선택해주세요.');
-      return;
-    }
-
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-      now.getDate()
-    ).padStart(2, '0')}`;
-
-    addTransaction({
-      type: txType,
-      amount: amountNum,
-      category: txCategory,
-      storeName: txStore.trim() || undefined,
-      date: dateStr,
-      memo: txMemo.trim() || undefined,
-      goalId: txType === 'stack' ? txTowerId : undefined,
-    });
-
-    // 폼 초기화 및 모달 닫기
-    setTxAmount('');
-    setTxStore('');
-    setTxMemo('');
-    setTxTowerId('');
-    setTxModalVisible(false);
   };
 
   // 고정비 등록 핸들러
   const handleAddFixed = () => {
-    const amountNum = parseInt(fixedAmount.replace(/,/g, ''), 10);
-    const dayNum = parseInt(fixedDay, 10);
-    if (!fixedTitle.trim()) {
-      showAlert('알림', '고정비 항목명을 입력해주세요.');
-      return;
+    const res = handleAddFixedSettingSubmit();
+    if (!res.success) {
+      showAlert('알림', res.message ?? '오류가 발생했습니다.');
     }
-    if (isNaN(amountNum) || amountNum <= 0) {
-      showAlert('알림', '금액을 올바르게 입력해주세요.');
-      return;
-    }
-    if (!fixedCategory) {
-      showAlert('알림', '카테고리를 선택해주세요.');
-      return;
-    }
-    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
-      showAlert('알림', '반복 일자를 1~31일 사이로 입력해주세요.');
-      return;
-    }
-
-    addFixedSetting({
-      type: fixedType,
-      title: fixedTitle.trim(),
-      amount: amountNum,
-      category: fixedCategory,
-      day: dayNum,
-      storeName: fixedStore.trim() || undefined,
-      isActive: true,
-    });
-
-    setFixedTitle('');
-    setFixedAmount('');
-    setFixedDay('');
-    setFixedStore('');
-    setFixedModalVisible(false);
   };
 
   // 예적금 등록 핸들러
@@ -233,11 +164,7 @@ export default function HomeScreen() {
     }
   };
 
-  // 필터링된 트랜잭션 목록
-  const filteredTxs = transactions.filter((tx) => {
-    if (filterType === 'all') return true;
-    return tx.type === filterType;
-  });
+  const filteredTxs = filteredTransactions;
 
   return (
     <ThemedView style={styles.container}>
@@ -388,29 +315,71 @@ export default function HomeScreen() {
                   등록된 예적금이 없습니다.
                 </ThemedText>
               ) : (
-                bankProducts.map((p) => (
-                  <View key={p.id} style={styles.bankItemRow}>
-                    <View>
-                      <ThemedText type="smallBold">{p.bankName} - {p.title}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        이율 {p.interestRate}% | 만기 {p.maturityDate} {p.monthlyPayment ? `| 월 ${p.monthlyPayment.toLocaleString()}원` : ''}
-                      </ThemedText>
+                bankProducts.map((p) => {
+                  let statusLabel = '';
+                  let statusColor: string = colors.text;
+                  let amountLabel = `${p.amount.toLocaleString()}원`;
+
+                  if (p.status === 'matured') {
+                    statusLabel = '[만기완료] ';
+                    statusColor = '#10B981';
+                    amountLabel = `수령: ${p.finalReceivedAmount?.toLocaleString() || p.amount.toLocaleString()}원`;
+                  } else if (p.status === 'terminated') {
+                    statusLabel = '[중도해지] ';
+                    statusColor = '#6B7280';
+                    amountLabel = `해지수령: ${p.finalReceivedAmount?.toLocaleString() || p.amount.toLocaleString()}원`;
+                  }
+
+                  return (
+                    <View key={p.id} style={styles.bankItemRow}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          {statusLabel ? (
+                            <ThemedText type="smallBold" style={{ color: statusColor }}>
+                              {statusLabel}
+                            </ThemedText>
+                          ) : null}
+                          <ThemedText type="smallBold">{p.bankName} - {p.title}</ThemedText>
+                        </View>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          이율 {p.interestRate}% | 만기 {p.maturityDate}
+                          {p.monthlyPayment ? ` | 월 ${p.monthlyPayment.toLocaleString()}원` : ''}
+                          {p.paymentDay ? ` | 이체일 ${p.paymentDay}일` : ''}
+                        </ThemedText>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: Spacing.one }}>
+                        <ThemedText type="smallBold" style={{ color: statusLabel ? statusColor : colors.text }}>
+                          {amountLabel}
+                        </ThemedText>
+                        <View style={{ flexDirection: 'row', gap: Spacing.two }}>
+                          {p.status === 'active' && (
+                            <Pressable
+                              onPress={() => handleOpenTerminate(p.id, p.amount)}
+                            >
+                              <ThemedText type="code" style={{ color: '#3B82F6', fontSize: 11 }}>중도해지</ThemedText>
+                            </Pressable>
+                          )}
+                          <Pressable
+                            onPress={() => {
+                              if (Platform.OS === 'web') {
+                                if (confirm('이 계좌를 삭제하시겠습니까?')) {
+                                  handleDeleteBankProduct(p.id);
+                                }
+                              } else {
+                                Alert.alert('계좌 삭제', '이 계좌를 삭제하시겠습니까?', [
+                                  { text: '취소', style: 'cancel' },
+                                  { text: '삭제', style: 'destructive', onPress: () => handleDeleteBankProduct(p.id) },
+                                ]);
+                              }
+                            }}
+                          >
+                            <ThemedText type="code" style={{ color: '#EF4444', fontSize: 11 }}>삭제</ThemedText>
+                          </Pressable>
+                        </View>
+                      </View>
                     </View>
-                    <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: Spacing.two }}>
-                      <ThemedText type="smallBold">{p.amount.toLocaleString()}원</ThemedText>
-                      <Pressable
-                        onPress={() => {
-                          Alert.alert('계좌 삭제', '이 계좌를 삭제하시겠습니까?', [
-                            { text: '취소', style: 'cancel' },
-                            { text: '삭제', style: 'destructive', onPress: () => handleDeleteBankProduct(p.id) },
-                          ]);
-                        }}
-                      >
-                        <ThemedText type="code" style={{ color: '#EF4444' }}>삭제</ThemedText>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           </ThemedView>
@@ -547,7 +516,7 @@ export default function HomeScreen() {
           {/* ────────────────────────────────────────── */}
           <View style={styles.filterContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-              {(['all', 'income', 'expense', 'credit_card', 'stack'] as const).map((type) => {
+              {(['all', 'income', 'expense', 'credit_card', 'stack', 'saving'] as const).map((type) => {
                 const label =
                   type === 'all'
                     ? '전체'
@@ -557,7 +526,9 @@ export default function HomeScreen() {
                     ? '지출(현금)'
                     : type === 'credit_card'
                     ? '신용카드'
-                    : '스택(저금)';
+                    : type === 'stack'
+                    ? '스택(저금)'
+                    : '저축(계좌)';
                 const isSelected = filterType === type;
                 return (
                   <Pressable
@@ -603,12 +574,18 @@ export default function HomeScreen() {
               if (tx.type === 'income') {
                 typeLabel = '수입';
                 color = '#10B981';
+              } else if (tx.type === 'expense') {
+                typeLabel = '지출';
+                color = '#EF4444';
               } else if (tx.type === 'credit_card') {
                 typeLabel = '카드';
-                color = '#EF4444';
+                color = '#F59E0B'; // 주황
               } else if (tx.type === 'stack') {
                 typeLabel = '스택';
-                color = '#3B82F6';
+                color = '#8B5CF6'; // 보라
+              } else if (tx.type === 'saving') {
+                typeLabel = '저축';
+                color = '#3B82F6'; // 파랑
               }
 
               return (
@@ -642,10 +619,16 @@ export default function HomeScreen() {
                       </ThemedText>
                       <Pressable
                         onPress={() => {
-                          Alert.alert('삭제 확인', '이 내역을 삭제하시겠습니까?', [
-                            { text: '취소', style: 'cancel' },
-                            { text: '삭제', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
-                          ]);
+                          if (Platform.OS === 'web') {
+                            if (confirm('이 내역을 삭제하시겠습니까?')) {
+                              deleteTransaction(tx.id);
+                            }
+                          } else {
+                            Alert.alert('삭제 확인', '이 내역을 삭제하시겠습니까?', [
+                              { text: '취소', style: 'cancel' },
+                              { text: '삭제', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+                            ]);
+                          }
                         }}
                         style={styles.deleteTxButton}
                       >
@@ -981,14 +964,24 @@ export default function HomeScreen() {
               />
 
               {bankType === 'savings' && (
-                <TextInput
-                  placeholder="월 납입액 (선택사항, 원)"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="number-pad"
-                  value={bankMonthlyPayment}
-                  onChangeText={(val) => setBankMonthlyPayment(val.replace(/[^0-9]/g, ''))}
-                  style={[styles.inputField, { borderColor: colors.backgroundSelected, color: colors.text }]}
-                />
+                <>
+                  <TextInput
+                    placeholder="월 납입액 (원)"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="number-pad"
+                    value={bankMonthlyPayment}
+                    onChangeText={(val) => setBankMonthlyPayment(val.replace(/[^0-9]/g, ''))}
+                    style={[styles.inputField, { borderColor: colors.backgroundSelected, color: colors.text }]}
+                  />
+                  <TextInput
+                    placeholder="매월 납입 이체일 (1~31일 사이 숫자)"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="number-pad"
+                    value={bankPaymentDay}
+                    onChangeText={(val) => setBankPaymentDay(val.replace(/[^0-9]/g, ''))}
+                    style={[styles.inputField, { borderColor: colors.backgroundSelected, color: colors.text }]}
+                  />
+                </>
               )}
 
               <View style={[styles.buttonRow, { marginTop: Spacing.four }]}>
@@ -1003,6 +996,52 @@ export default function HomeScreen() {
                   style={[styles.modalActionButton, { backgroundColor: '#10B981' }]}
                 >
                   <ThemedText type="smallBold" style={{ color: '#fff' }}>계좌 등록</ThemedText>
+                </Pressable>
+              </View>
+            </ThemedView>
+          </View>
+        </Modal>
+
+        {/* ────────────────────────────────────────── */}
+        {/* 모달 - 예적금 중도해지 모달 */}
+        {/* ────────────────────────────────────────── */}
+        <Modal visible={isTermModalOpen} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <ThemedView type="backgroundElement" style={styles.modalContent}>
+              <ThemedText type="subtitle" style={styles.modalTitle}>⚠️ 예적금 중도해지 정산</ThemedText>
+              
+              <ThemedText type="small" themeColor="textSecondary" style={{ marginBottom: Spacing.four }}>
+                중도해지 시 원금과 해지 이자를 포함하여 최종 수령할 실금액을 입력하세요. 가계부에 금융소득 수입으로 정산 입금됩니다.
+              </ThemedText>
+
+              <TextInput
+                placeholder="실제 최종 수령 금액 (원)"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="number-pad"
+                value={termActualReceived}
+                onChangeText={(val) => setTermActualReceived(val.replace(/[^0-9]/g, ''))}
+                style={[styles.inputField, { borderColor: colors.backgroundSelected, color: colors.text }]}
+              />
+
+              <View style={[styles.buttonRow, { marginTop: Spacing.four }]}>
+                <Pressable
+                  onPress={() => setIsTermModalOpen(false)}
+                  style={[styles.modalActionButton, { backgroundColor: '#EF4444' }]}
+                >
+                  <ThemedText type="smallBold" style={{ color: '#fff' }}>취소</ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const res = handleTerminateBankProductSubmit();
+                    if (!res.success) {
+                      showAlert('알림', res.message ?? '오류가 발생했습니다.');
+                    } else {
+                      showAlert('알림', '성공적으로 중도해지 정산 처리되었습니다.');
+                    }
+                  }}
+                  style={[styles.modalActionButton, { backgroundColor: '#3B82F6' }]}
+                >
+                  <ThemedText type="smallBold" style={{ color: '#fff' }}>해지 실행</ThemedText>
                 </Pressable>
               </View>
             </ThemedView>
